@@ -4,6 +4,9 @@ services:
     container_name: pr-web-server
     environment:
       PORT: 8000
+      ROOT_DIR: /app/public
     ports:
       - "8000:8000"
+    volumes:
+      - ./public:/app/public:ro
     restart: unless-stopped
