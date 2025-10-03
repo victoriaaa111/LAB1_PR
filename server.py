@@ -1,4 +1,4 @@
-import os, socket
+import os, socket, mimetypes
 
 
 PORT = int(os.environ.get("PORT", "8000"))
@@ -23,6 +23,8 @@ def main():
     # handles one client at a time
     s.listen(1)
     print(f"Serving {ROOT} on http://0.0.0.0: {PORT}")
+
+    allowed_extensions = {".html", ".png", ".pdf"}
 
     while True:
         # returns a conn socket and client's address
@@ -51,27 +53,47 @@ def main():
                         b"Only GET is allowed")
                 continue
 
-            # for now serve only / or /index.html
-            if target in ("/", "/index.html"):
-                path = os.path.join(ROOT, "index.html")
-                try:
-                    with open(path, "rb") as f:
-                        body = f.read()
-                    respond(conn, "200 OK",
-                            {"Content-Type": "text/html; charset=utf-8",
-                             "Content-Length": str(len(body)),
-                             "Connection": "close"},
-                            body)
-                except OSError:
-                    respond(conn, "404 Not Found",
-                            {"Content-Type": "text/html; charset=utf-8", "Connection": "close"},
-                            b"<!doctype html><h1>404 Not Found</h1>"
-                            )
-            else:
+            if target == "/":
+                target = "/index.html"
+
+            path = os.path.join(ROOT, target.lstrip("/"))
+            _, ext = os.path.splitext(path)
+
+            # check if the file extension is allowed
+            if ext.lower() not in allowed_extensions:
                 respond(conn, "404 Not Found",
                         {"Content-Type": "text/html; charset=utf-8", "Connection": "close"},
                         b"<!doctype html><h1>404 Not Found</h1>")
+                continue
 
+            if not os.path.isfile(path):
+                respond(conn, "404 Not Found",
+                        {"Content-Type": "text/html; charset=utf-8", "Connection": "close"},
+                        b"<!doctype html><h1>404 Not Found</h1>")
+                continue
+
+            # get mime type of filee
+            mime_type, _ = mimetypes.guess_type(path)
+            if mime_type is None:
+                respond(conn, "404 Not Found",
+                        {"Content-Type":"text/html; charset=utf-8", "Connection": "close"},
+                        b"<doctype html><h1>404 Not Found</h1>")
+                continue
+
+            # read and serve file
+            try:
+                with open(path, "rb") as f:
+                    body = f.read()
+                respond(conn, "200 OK",
+                        {"Content-Type": mime_type,
+                         "Content-Length": str(len(body)),
+                         "Connection": "close"},
+                        body)
+            except OSError:
+                respond(conn, "500 Internal Server Error",
+                        {"Content-Type": "text/plain",
+                         "Connection": "close"},
+                        b"Internal Server Error")
         finally:
             conn.close()
 
