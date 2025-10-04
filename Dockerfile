@@ -1,7 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY . /app
-ENV ROOT_DIR=/app/public
-ENV PORT=8000
+COPY server.py client.py ./
+RUN useradd -m app && chown -R app:app /app
+USER app
 EXPOSE 8000
-CMD ["python", "server.py"]

@@ -7,6 +7,12 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./public:/app/public:ro
+      - ./:/app:ro
     command: ["python", "server.py", "/app"]
-    restart: unless-stopped
+  client:
+      build: .
+      entrypoint: [ "python", "client.py" ]
+      volumes:
+        - ./downloads:/app/downloads
+      depends_on:
+        - server

@@ -82,7 +82,8 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
                 icon = ""
             size = file_size(os.path.getsize(full))
 
-        mtime = datetime.datetime.fromtimestamp(os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M")
+        ts = os.path.getmtime(full)
+        mtime = datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M UTC")
         lines.append(f"<tr><td>{icon} <a href=\"{href}\">{name}</a></td>"
                      f"<td>{size}</td><td>{mtime}</td></tr>")
 
