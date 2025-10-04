@@ -1,8 +1,7 @@
-import os, socket, mimetypes
+import os, socket, mimetypes, sys
 
 
 PORT = int(os.environ.get("PORT", "8000"))
-ROOT = os.environ.get("ROOT", "/app/public").rstrip("/")
 
 
 def respond(conn, status, headers, body):
@@ -15,6 +14,18 @@ def respond(conn, status, headers, body):
 
 
 def main():
+    if len(sys.argv) != 2:
+        print("Using: python server.py directory")
+        sys.exit(1)
+
+    root_dir = sys.argv[1]
+    if not os.path.isdir(root_dir):
+        print(f"Error: Directory '{root_dir}' does not exist.")
+        sys.exit(1)
+
+    root_dir = os.path.abspath(root_dir)
+    print(f"Serving directory: {root_dir}")
+
     # creates new tcp socket with IPv4 and TCP
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # allows restart without "Address already in use"
@@ -22,7 +33,7 @@ def main():
     s.bind(("0.0.0.0", PORT))
     # handles one client at a time
     s.listen(1)
-    print(f"Serving {ROOT} on http://0.0.0.0: {PORT}")
+    print(f"Serving {root_dir} on http://0.0.0.0: {PORT}")
 
     allowed_extensions = {".html", ".png", ".pdf"}
 
@@ -56,7 +67,7 @@ def main():
             if target == "/":
                 target = "/index.html"
 
-            path = os.path.join(ROOT, target.lstrip("/"))
+            path = os.path.join(root_dir, target.lstrip("/"))
             _, ext = os.path.splitext(path)
 
             # check if the file extension is allowed
