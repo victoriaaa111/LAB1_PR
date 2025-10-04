@@ -3,10 +3,18 @@ import socket
 import mimetypes
 import sys
 from urllib.parse import unquote, quote
-
+import datetime
 
 PORT = int(os.environ.get("PORT", "8000"))
 ALLOWED_EXTENSIONS = {".html", ".png", ".pdf"}
+
+
+def file_size(num_bytes: int) -> str:
+    for unit in ["B", "KB", "MB", "GB"]:
+        if num_bytes < 1024.0:
+            return f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024.0
+    return f"{num_bytes:.1f} TB"
 
 
 def respond(conn, status, headers, body):
@@ -33,32 +41,53 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
     except OSError:
         return b"<html><body><h1>Forbidden</h1></body></html>"
 
-    lines = [f"<h1>Content of {req_path}</h1>", "<ul>"]
+    lines = [
+        "<!DOCTYPE html>",
+        "<html><head><meta charset='utf-8'>",
+        f"<title>Content of {req_path}</title>",
+        "<style>body{font-family:sans-serif} table{border-collapse:collapse} "
+        "th,td{padding:4px 8px;border-bottom:1px solid #ddd;text-align:left}</style>",
+        "</head><body>",
+        f"<h1>Index of {req_path}</h1>",
+        "<table>",
+        "<tr><th>Name</th><th>Size</th><th>Last modified</th></tr>"
+    ]
 
     if req_path != "/":
-        # parent link
         parent = req_path.rstrip("/").rsplit("/", 1)[0]
         if not parent:
             parent = "/"
         else:
             parent += "/"
-        lines.append(f'<li><a href="{quote(parent)}">..</a></li>')
+        lines.append(f'<tr><td><a href="{quote(parent)}">..</a></td><td></td><td></td></tr>')
 
     for name in entries:
         full = os.path.join(abs_dir, name)
         if os.path.isdir(full):
-            href = quote(name) + "/"   # keep slash for dirs
-            lines.append(f'<li>📁 <a href="{href}">{name}/</a></li>')
+            href = quote(name) + "/"
+            icon = "📁"
+            size = "-"
         else:
             ext = os.path.splitext(name)[1].lower()
-            if ext in ALLOWED_EXTENSIONS:
-                href = quote(name)
-                icon = "🌐" if ext == ".html" else ("🖼️" if ext == ".png" else "📄")
-                lines.append(f'<li>{icon} <a href="{href}">{name}</a></li>')
+            if ext not in ALLOWED_EXTENSIONS:
+                continue
+            href = quote(name)
+            if ext == ".html":
+                icon = "🌐"
+            elif ext == ".png":
+                icon = "🖼️"
+            elif ext == ".pdf":
+                icon = "📄"
+            else:
+                icon = ""
+            size = file_size(os.path.getsize(full))
 
-    lines.append("</ul>")
-    return ("<html><head><meta charset='utf-8'></head><body>" +
-            "\n".join(lines) + "</body></html>").encode("utf-8")
+        mtime = datetime.datetime.fromtimestamp(os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M")
+        lines.append(f"<tr><td>{icon} <a href=\"{href}\">{name}</a></td>"
+                     f"<td>{size}</td><td>{mtime}</td></tr>")
+
+    lines.append("</table></body></html>")
+    return "\n".join(lines).encode("utf-8")
 
 
 def _respond_301(conn, location: str):
