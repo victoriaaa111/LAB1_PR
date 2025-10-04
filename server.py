@@ -1,7 +1,12 @@
-import os, socket, mimetypes, sys
+import os
+import socket
+import mimetypes
+import sys
+from urllib.parse import unquote, quote
 
 
 PORT = int(os.environ.get("PORT", "8000"))
+ALLOWED_EXTENSIONS = {".html", ".png", ".pdf"}
 
 
 def respond(conn, status, headers, body):
@@ -11,6 +16,68 @@ def respond(conn, status, headers, body):
     head.append(b"")
     head.append(b"")
     conn.sendall(b"\r\n".join(head) + body)
+
+
+def _is_subpath(child: str, parent: str) -> bool:
+    child_real = os.path.realpath(child)
+    parent_real = os.path.realpath(parent)
+    try:
+        return os.path.commonpath([child_real, parent_real]) == parent_real
+    except ValueError:
+        return False
+
+
+def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
+    try:
+        entries = sorted(os.listdir(abs_dir))
+    except OSError:
+        return b"<html><body><h1>Forbidden</h1></body></html>"
+
+    lines = [f"<h1>Content of {req_path}</h1>", "<ul>"]
+
+    if req_path != "/":
+        # parent link
+        parent = req_path.rstrip("/").rsplit("/", 1)[0]
+        if not parent:
+            parent = "/"
+        else:
+            parent += "/"
+        lines.append(f'<li><a href="{quote(parent)}">..</a></li>')
+
+    for name in entries:
+        full = os.path.join(abs_dir, name)
+        if os.path.isdir(full):
+            href = quote(name) + "/"   # keep slash for dirs
+            lines.append(f'<li>📁 <a href="{href}">{name}/</a></li>')
+        else:
+            ext = os.path.splitext(name)[1].lower()
+            if ext in ALLOWED_EXTENSIONS:
+                href = quote(name)
+                icon = "🌐" if ext == ".html" else ("🖼️" if ext == ".png" else "📄")
+                lines.append(f'<li>{icon} <a href="{href}">{name}</a></li>')
+
+    lines.append("</ul>")
+    return ("<html><head><meta charset='utf-8'></head><body>" +
+            "\n".join(lines) + "</body></html>").encode("utf-8")
+
+
+def _respond_301(conn, location: str):
+    body = (f"<html><body>Moved: <a href=\"{location}\">{location}</a></body></html>").encode("utf-8")
+    respond(conn, "301 Moved Permanently",
+            {"Location": location,
+             "Content-Type": "text/html; charset=utf-8",
+             "Content-Length": str(len(body)),
+             "Connection": "close"},
+            body)
+
+
+def _respond_404(conn):
+    body = b"<html><body><h1>404 Not Found</h1></body></html>"
+    respond(conn, "404 Not Found",
+            {"Content-Type": "text/html; charset=utf-8",
+             "Content-Length": str(len(body)),
+             "Connection": "close"},
+            body)
 
 
 def main():
@@ -35,7 +102,6 @@ def main():
     s.listen(1)
     print(f"Serving {root_dir} on http://0.0.0.0: {PORT}")
 
-    allowed_extensions = {".html", ".png", ".pdf"}
 
     while True:
         # returns a conn socket and client's address
@@ -57,43 +123,96 @@ def main():
                 continue
             method, target, version = parts
             if method != "GET":
-                respond(conn, "405 Method not allowed",
+                respond(conn, "405 Method Not Allowed",
                         {"Allow": "GET",
                          "Content-Type": "text/plain",
                          "Connection": "close"},
                         b"Only GET is allowed")
                 continue
 
+            # ensure URL path starts with "/"
+            if not target.startswith("/"):
+                target = "/"
+
+            # decode URL-encoded characters
+            target = unquote(target)
+            # map URL to relative path under root
             if target == "/":
-                target = "/index.html"
+                requested_rel = ""  # root directory
+            else:
+                requested_rel = target.lstrip("/")
 
-            path = os.path.join(root_dir, target.lstrip("/"))
-            _, ext = os.path.splitext(path)
+            requested_abs = os.path.realpath(os.path.join(root_dir, requested_rel))
 
-            # check if the file extension is allowed
-            if ext.lower() not in allowed_extensions:
+            # 1) Reject traversal
+            if not _is_subpath(requested_abs, root_dir):
+                _respond_404(conn)
+                continue
+
+            # 2) If it's a directory
+            if os.path.isdir(requested_abs):
+                if not target.endswith("/"):
+                    _respond_301(conn, target + "/")
+                    continue
+
+                if target == "/":
+                    body = _minimal_listing_html(target, requested_abs)
+                    respond(conn, "200 OK",
+                            {"Content-Type": "text/html; charset=utf-8",
+                             "Content-Length": str(len(body)),
+                             "Connection": "close"},
+                            body)
+                    continue
+
+                index_path = os.path.join(requested_abs, "index.html")
+                if os.path.isfile(index_path):
+                    try:
+                        with open(index_path, "rb") as f:
+                            body = f.read()
+                        respond(conn, "200 OK",
+                                {"Content-Type": "text/html; charset=utf-8",
+                                 "Content-Length": str(len(body)),
+                                 "Connection": "close"},
+                                body)
+                        continue
+                    except OSError:
+                        _respond_404(conn)
+                        continue
+                else:
+                    body = _minimal_listing_html(target, requested_abs)
+                    respond(conn, "200 OK",
+                            {"Content-Type": "text/html; charset=utf-8",
+                             "Content-Length": str(len(body)),
+                             "Connection": "close"},
+                            body)
+                    continue
+
+            # 3) Regular file flow (use requested_abs consistently)
+            ext = os.path.splitext(requested_abs)[1].lower()
+            if ext not in ALLOWED_EXTENSIONS:
                 respond(conn, "404 Not Found",
-                        {"Content-Type": "text/html; charset=utf-8", "Connection": "close"},
+                        {"Content-Type": "text/html; charset=utf-8",
+                         "Connection": "close"},
                         b"<!doctype html><h1>404 Not Found</h1>")
                 continue
 
-            if not os.path.isfile(path):
+            if not os.path.isfile(requested_abs):
                 respond(conn, "404 Not Found",
-                        {"Content-Type": "text/html; charset=utf-8", "Connection": "close"},
+                        {"Content-Type": "text/html; charset=utf-8",
+                         "Connection": "close"},
                         b"<!doctype html><h1>404 Not Found</h1>")
                 continue
 
-            # get mime type of filee
-            mime_type, _ = mimetypes.guess_type(path)
+            mime_type, _ = mimetypes.guess_type(requested_abs)
             if mime_type is None:
                 respond(conn, "404 Not Found",
-                        {"Content-Type":"text/html; charset=utf-8", "Connection": "close"},
-                        b"<doctype html><h1>404 Not Found</h1>")
+                        {"Content-Type": "text/html; charset=utf-8",
+                         "Connection": "close"},
+                        b"<!doctype html><h1>404 Not Found</h1>")
                 continue
 
-            # read and serve file
             try:
-                with open(path, "rb") as f:
+                with open(requested_abs, "rb") as f:
                     body = f.read()
                 respond(conn, "200 OK",
                         {"Content-Type": mime_type,
@@ -105,6 +224,7 @@ def main():
                         {"Content-Type": "text/plain",
                          "Connection": "close"},
                         b"Internal Server Error")
+
         finally:
             conn.close()
 
