@@ -8,5 +8,5 @@ services:
       - "8000:8000"
     volumes:
       - ./public:/app/public:ro
-    command: ["python", "server.py", "/app/public"]
+    command: ["python", "server.py", "/app"]
     restart: unless-stopped

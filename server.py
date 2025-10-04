@@ -48,7 +48,7 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
         "<style>body{font-family:sans-serif} table{border-collapse:collapse} "
         "th,td{padding:4px 8px;border-bottom:1px solid #ddd;text-align:left}</style>",
         "</head><body>",
-        f"<h1>Index of {req_path}</h1>",
+        f"<h1>Content of {req_path}</h1>",
         "<table>",
         "<tr><th>Name</th><th>Size</th><th>Last modified</th></tr>"
     ]
@@ -180,41 +180,19 @@ def main():
 
             # 2) If it's a directory
             if os.path.isdir(requested_abs):
+                # Enforce trailing slash for directories
                 if not target.endswith("/"):
                     _respond_301(conn, target + "/")
                     continue
 
-                if target == "/":
-                    body = _minimal_listing_html(target, requested_abs)
-                    respond(conn, "200 OK",
-                            {"Content-Type": "text/html; charset=utf-8",
-                             "Content-Length": str(len(body)),
-                             "Connection": "close"},
-                            body)
-                    continue
-
-                index_path = os.path.join(requested_abs, "index.html")
-                if os.path.isfile(index_path):
-                    try:
-                        with open(index_path, "rb") as f:
-                            body = f.read()
-                        respond(conn, "200 OK",
-                                {"Content-Type": "text/html; charset=utf-8",
-                                 "Content-Length": str(len(body)),
-                                 "Connection": "close"},
-                                body)
-                        continue
-                    except OSError:
-                        _respond_404(conn)
-                        continue
-                else:
-                    body = _minimal_listing_html(target, requested_abs)
-                    respond(conn, "200 OK",
-                            {"Content-Type": "text/html; charset=utf-8",
-                             "Content-Length": str(len(body)),
-                             "Connection": "close"},
-                            body)
-                    continue
+                # Always show listing; never auto-serve index.html
+                body = _minimal_listing_html(target, requested_abs)
+                respond(conn, "200 OK",
+                        {"Content-Type": "text/html; charset=utf-8",
+                         "Content-Length": str(len(body)),
+                         "Connection": "close"},
+                        body)
+                continue
 
             # 3) Regular file flow (use requested_abs consistently)
             ext = os.path.splitext(requested_abs)[1].lower()
