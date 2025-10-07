@@ -108,9 +108,6 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
             row_class = "dir"
             size = "—"
         else:
-            ext = os.path.splitext(name)[1].lower()
-            if ext not in ALLOWED_EXTENSIONS:
-                continue
             href = quote(name)
             row_class = "file"
             size = file_size(os.path.getsize(full))
@@ -213,11 +210,13 @@ def main():
     root_dir = os.path.abspath(root_dir)
     print(f"Serving directory: {root_dir}")
 
+
     # creates new tcp socket with IPv4 and TCP
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # allows restart without "Address already in use"
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("0.0.0.0", PORT))
+
     # handles one client at a time
     s.listen(1)
     print(f"Server running on http://0.0.0.0:{PORT}")
