@@ -1,9 +1,17 @@
 import os
 import socket
 import mimetypes
+
+# ensure common types exist even in slim images
+mimetypes.init()
+mimetypes.add_type("application/pdf", ".pdf")
+mimetypes.add_type("image/png", ".png")
+mimetypes.add_type("text/html; charset=utf-8", ".html")
+
 import sys
 from urllib.parse import unquote, quote
 import datetime
+from typing import Optional
 
 PORT = int(os.environ.get("PORT", "8000"))
 ALLOWED_EXTENSIONS = {".html", ".png", ".pdf"}
@@ -15,6 +23,14 @@ def file_size(num_bytes: int) -> str:
             return f"{num_bytes:.1f} {unit}"
         num_bytes /= 1024.0
     return f"{num_bytes:.1f} TB"
+
+
+def find_file_recursive(root_dir: str, filename: str) -> Optional[str]:
+    """Search for a file recursively in root_dir. Returns absolute path or None."""
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        if filename in filenames:
+            return os.path.join(dirpath, filename)
+    return None
 
 
 def respond(conn, status, headers, body):
@@ -124,6 +140,7 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
     lines.append("</tbody></table></main></body></html>")
     return "\n".join(lines).encode("utf-8")
 
+
 def _respond_301(conn, location: str):
     body = (f"<html><body>Moved: <a href=\"{location}\">{location}</a></body></html>").encode("utf-8")
     respond(conn, "301 Moved Permanently",
@@ -144,7 +161,7 @@ def _respond_404(conn):
             <link rel="preconnect" href="https://fonts.googleapis.com">
             <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
             <link href='https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;700&display=swap' rel='stylesheet'>
-    
+
             <title>404 Not Found</title>
             <style>
                 body {
@@ -208,8 +225,13 @@ def main():
         sys.exit(1)
 
     root_dir = os.path.abspath(root_dir)
-    print(f"Serving directory: {root_dir}")
 
+    # serve from a fixed subfolder so client can request just the filename
+    content_dir = os.path.join(root_dir, "public")
+    if not os.path.isdir(content_dir):
+        content_dir = root_dir
+
+    print(f"Serving directory: {content_dir}")
 
     # creates new tcp socket with IPv4 and TCP
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -234,13 +256,13 @@ def main():
             parts = line.split()
             if len(parts) != 3:
                 respond(
-                        conn,
-                        "400 Bad Request",
-                        {
-                            "Content-Type": "text/plain",
-                            "Connection": "close"
-                        },
-                        b"Bad Request"
+                    conn,
+                    "400 Bad Request",
+                    {
+                        "Content-Type": "text/plain",
+                        "Connection": "close"
+                    },
+                    b"Bad Request"
                 )
                 continue
             method, target, version = parts
@@ -264,10 +286,9 @@ def main():
             else:
                 requested_rel = target.lstrip("/")
 
-            requested_abs = os.path.realpath(os.path.join(root_dir, requested_rel))
-
+            requested_abs = os.path.realpath(os.path.join(content_dir, requested_rel))
             # 1) reject traversal
-            if not _is_subpath(requested_abs, root_dir):
+            if not _is_subpath(requested_abs, content_dir):
                 _respond_404(conn)
                 continue
 
@@ -288,12 +309,21 @@ def main():
                 continue
 
             # 3) regular file flow
+            # First check if it exists at the specified path
+            if not os.path.isfile(requested_abs):
+                # If not found at direct path, try searching recursively for just the filename
+                filename = os.path.basename(requested_rel)
+                found_path = find_file_recursive(content_dir, filename)
+
+                if found_path:
+                    requested_abs = found_path
+                    print(f"Found file via recursive search: {found_path}")
+                else:
+                    _respond_404(conn)
+                    continue
+
             ext = os.path.splitext(requested_abs)[1].lower()
             if ext not in ALLOWED_EXTENSIONS:
-                _respond_404(conn)
-                continue
-
-            if not os.path.isfile(requested_abs):
                 _respond_404(conn)
                 continue
 

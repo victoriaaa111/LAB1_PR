@@ -1,66 +1,101 @@
-import sys, socket, os
+import os
+import sys
+import socket
 from urllib.parse import quote
 
+DOWNLOAD_DIR = "./downloads"
 
-def save_file(filename: str, data: bytes):
-    os.makedirs("downloads", exist_ok=True)
-    out_path = os.path.join("downloads", os.path.basename(filename))
+def save_file(filename: str, data: bytes) -> str:
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    # strip any path parts coming from the request
+    base = os.path.basename(filename) or "downloaded_file"
+    out_path = os.path.join(DOWNLOAD_DIR, base)
     with open(out_path, "wb") as f:
         f.write(data)
-    print(f"Saved to {out_path}")
+    return out_path
 
+def recv_all(sock: socket.socket) -> bytes:
+    chunks = []
+    while True:
+        buf = sock.recv(4096)
+        if not buf:
+            break
+        chunks.append(buf)
+    return b"".join(chunks)
 
 def main():
-    if len(sys.argv) != 4:
-        print("Usage: python client.py <server_host> <server_port> <filename>")
+    if len(sys.argv) < 4:
+        print("Usage: python3 client.py <host> <port> <path-or-file>")
         sys.exit(1)
 
     host = sys.argv[1]
     port = int(sys.argv[2])
-    filename = sys.argv[3]
+    req_path = sys.argv[3]
 
-    request_path = "/" + quote(filename.lstrip("/"))
+    # Ensure leading slash for the request path
+    if not req_path.startswith("/"):
+        req_path = "/" + req_path
 
-    # open TCP socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((host, port))
+    # Build HTTP/1.1 request; ask the server to close after response
+    request = (
+        f"GET {quote(req_path)} HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode("ascii")
 
-    request = f"GET {request_path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-    s.sendall(request.encode("utf-8"))
+    # Connect and send
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect((host, port))
+        s.sendall(request)
 
-    response = b""
-    while True:
-        chunk = s.recv(4096)
-        if not chunk:
-            break
-        response += chunk
-    s.close()
+        raw = recv_all(s)
 
-    # split headers and body
-    header_bytes, _, body = response.partition(b"\r\n\r\n")
-    headers = header_bytes.decode(errors="replace").split("\r\n")
-    status_line = headers[0]
-    header_dict = {}
-    for h in headers[1:]:
-        if ":" in h:
-            k, v = h.split(":", 1)
-            header_dict[k.strip().lower()] = v.strip()
+    # Split headers/body
+    sep = b"\r\n\r\n"
+    pos = raw.find(sep)
+    if pos == -1:
+        sep = b"\n\n"
+        pos = raw.find(sep)
+    if pos == -1:
+        print("Malformed HTTP response: no header/body separator")
+        sys.exit(2)
 
+    header_bytes = raw[:pos]
+    body = raw[pos + len(sep):]
+
+    # Decode headers and gather into a dict (case-insensitive)
+    header_lines = header_bytes.decode("iso-8859-1", errors="replace").splitlines()
+    status_line = header_lines[0] if header_lines else "HTTP/1.1 ???"
     print(status_line)
-    if "content-type" not in header_dict:
-        print("No Content-Type in response")
+
+    headers = {}
+    for line in header_lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+
+    content_type = headers.get("content-type", "application/octet-stream").lower()
+
+    # If not 200, just print the body as text so you see the error page
+    if not status_line.startswith("HTTP/1.1 200"):
+        try:
+            print(body.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
         return
 
-    content_type = header_dict["content-type"]
-
+    # Handle by content-type
     if content_type.startswith("text/html"):
-        # print HTML as text
+        # Print HTML to stdout
         print(body.decode("utf-8", errors="replace"))
-    elif content_type in ("application/pdf", "image/png"):
-        save_file(filename, body)
+    elif content_type.startswith("image/png") or content_type.startswith("application/pdf"):
+        out = save_file(req_path, body)
+        print(f"Saved to {out}")
     else:
-        print(f"Unhandled Content-Type: {content_type}")
-
+        # Default: save unknown types
+        out = save_file(req_path, body)
+        print(f"Saved (type: {content_type}) to {out}")
 
 if __name__ == "__main__":
     main()
