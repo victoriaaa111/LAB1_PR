@@ -54,7 +54,7 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
         "<style>",
         ":root{--bg:#EFD8D6;--card:#F7F3ED;--text:#422B23;--muted:#955A5C;--link:#8B3C46;--row:#EFD8D6;--border:#EFD8D6}",
         "*{box-sizing:border-box}",
-        "body{margin:0;padding:28px 16px;background:var(--bg);color:var(--text);",
+        "body{margin:0; padding:28px 16px;background:var(--bg);color:var(--text);",
         "     font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}",
         "header{max-width:960px;margin:0 auto 12px}",
         "h1{margin:0 0 8px;font-size:20px;font-weight:600}",
@@ -116,8 +116,7 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
             size = file_size(os.path.getsize(full))
 
         ts = os.path.getmtime(full)
-        mtime = datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M UTC")
-
+        mtime = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
         lines.append(
             f'<tr class="{row_class}">'
             f'<td><a href="{href}">{name if not os.path.isdir(full) else name + "/"}</a></td>'
@@ -139,7 +138,61 @@ def _respond_301(conn, location: str):
 
 
 def _respond_404(conn):
-    body = b"<html><body><h1>404 Not Found</h1></body></html>"
+    body = b"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href='https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;700&display=swap' rel='stylesheet'>
+    
+            <title>404 Not Found</title>
+            <style>
+                body {
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    background-color: #F7F3ED;
+                    color: #DBA1A2;
+                    text-align: center;
+                    font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+                }
+                .container {
+                    max-width: 600px;
+                }
+                h1 {
+                    font-size: 64px;
+                    margin-bottom: 16px;
+                    font-family: 'Pixelify Sans', sans-serif;
+                }
+                p {
+                    font-size: 18px;
+                    color: #955A5C;
+                }
+                a {
+                    color: #8B3C46;
+                    text-decoration: none;
+                    font-weight: bold;
+                }
+                a:hover {
+                    text-decoration: underline;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>404</h1>
+                <p>Oops! The page you are looking for does not exist.</p>
+                <p>Go back to the <a href="/">homepage</a></p>
+            </div>
+        </body>
+        </html>
+        """
     respond(conn, "404 Not Found",
             {"Content-Type": "text/html; charset=utf-8",
              "Content-Length": str(len(body)),
