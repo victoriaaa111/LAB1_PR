@@ -225,11 +225,7 @@ def main():
         sys.exit(1)
 
     root_dir = os.path.abspath(root_dir)
-
-    # serve from a fixed subfolder so client can request just the filename
-    content_dir = os.path.join(root_dir, "public")
-    if not os.path.isdir(content_dir):
-        content_dir = root_dir
+    content_dir = root_dir  # Always serve the root directory
 
     print(f"Serving directory: {content_dir}")
 
