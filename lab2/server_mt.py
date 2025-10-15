@@ -2,12 +2,14 @@ import os, sys, socket, mimetypes
 from urllib.parse import unquote, quote
 from concurrent.futures import ThreadPoolExecutor
 import time
+from typing import Optional, Dict
 
 # config
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8001"))
 ALLOWED_EXTENSIONS = {".html", ".png", ".pdf"}
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "16"))
+COUNTS: Dict[str, int] = {}
 
 # ensure common types exist
 mimetypes.init()
@@ -23,6 +25,11 @@ def file_size(num_bytes: int) -> str:
         num_bytes /= 1024.0
     return f"{num_bytes:.1f} TB"
 
+
+def _bump_count_naive(path_key: str):
+    current = COUNTS.get(path_key, 0)
+    time.sleep(100 / 1000)
+    COUNTS[path_key] = current + 1
 
 def respond(conn, status, headers, body):
     head = [f"HTTP/1.1 {status}".encode()]
@@ -72,8 +79,9 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
         "td{padding:10px 14px;border-bottom:1px solid var(--border)}",
         "a{color:var(--link);text-decoration:none}", "a:hover{text-decoration:underline}",
         "tr.dir td:first-child a::before{content:'📁  '}", "tr.file td:first-child a::before{content:'📄  '}",
-        "tr.up   td:first-child a::before{content:'⬆  '}", "td:nth-child(2),td:nth-child(3){color:var(--muted);white-space:nowrap}",
-        "@media (max-width: 640px){ thead th:nth-child(3), td:nth-child(3){display:none} }",
+        "tr.up   td:first-child a::before{content:'⬆  '}",
+        "td:nth-child(2),td:nth-child(3), td:nth-child(4){color:var(--muted);white-space:nowrap}",
+        "@media (max-width: 640px){ thead th:nth-child(4), td:nth-child(4){display:none} }",
         ".parent-link{margin-bottom:8px; margin-top:8px; display:block;font-weight:600}",
         ".title-lab{font-family:'Pixelify Sans', sans-serif; color: #DBA1A2; font-size: 64px; margin-bottom: 16px; margin-top: 4px;}",
         ".center-title{display:flex; text-align: center; align-items: center; justify-content: center;}",
@@ -84,9 +92,10 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
         parent = req_path.rstrip("/").rsplit("/", 1)[0]
         parent = "/" if not parent else parent + "/"
         lines.append(f'<a class="parent-link" href="{quote(parent)}">⬆ Parent directory</a>')
-    lines.extend(["<table>", "<thead><tr><th>Name</th><th>Size</th><th>Last modified</th></tr></thead>", "<tbody>"])
+    lines.extend(["<table>", "<thead><tr><th>Name</th><th>Size</th><th>Last modified</th><th>Hits</th></tr></thead>", "<tbody>"])
     for name in entries:
         full = os.path.join(abs_dir, name)
+        is_directory = os.path.isdir(full)
         if os.path.isdir(full):
             href = quote(name) + "/"
             row_class = "dir"
@@ -97,9 +106,11 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
             size = file_size(os.path.getsize(full))
         ts = os.path.getmtime(full)
         mtime = _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        child_req_path = req_path + (name + "/" if is_directory else name)
+        hits = COUNTS.get(child_req_path, 0)
         lines.append(
             f'<tr class="{row_class}"><td><a href="{href}">{name if not os.path.isdir(full) else name + "/"}</a></td>'
-            f"<td>{size}</td><td>{mtime}</td></tr>"
+            f"<td>{size}</td><td>{mtime}</td><td>{hits}</td></tr>"
         )
     lines.append("</tbody></table></main></body></html>")
     return "\n".join(lines).encode("utf-8")
@@ -133,7 +144,7 @@ def _respond_404(conn):
 # multithreaded handler
 def _serve_connection(conn: socket.socket, addr, content_dir: str):
     try:
-        time.sleep(1)
+        time.sleep(0.1)
         data = conn.recv(4096)
         if not data:
             return
@@ -155,7 +166,7 @@ def _serve_connection(conn: socket.socket, addr, content_dir: str):
         if not target.startswith("/"):
             target = "/"
         target = unquote(target)
-
+        _bump_count_naive(target)
 
         # map to filesystem under content_dir
         requested_rel = "" if target == "/" else target.lstrip("/")
