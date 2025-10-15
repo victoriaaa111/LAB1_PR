@@ -3,7 +3,7 @@ import sys
 import socket
 from urllib.parse import quote
 
-DOWNLOAD_DIR = "./downloads"
+DOWNLOAD_DIR = "downloads"
 
 def save_file(filename: str, data: bytes) -> str:
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)

@@ -1,6 +1,8 @@
 services:
   server:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: pr-web-server
     environment:
       PORT: 8000
@@ -10,7 +12,7 @@ services:
       - ./:/app:ro
     command: ["python", "server.py", "/app"]
   client:
-      build: .
+      build: ..
       entrypoint: [ "python", "client.py" ]
       volumes:
         - ./downloads:/app/downloads
