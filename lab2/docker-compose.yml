@@ -6,10 +6,15 @@ services:
     container_name: pr-web-server-lab2
     environment:
       PORT: 8001
-      MAX_WORKERS: 16
-      SIMULATE_WORK_MS: 0
+      MAX_WORKERS: 10
     ports:
       - "8001:8001"
     volumes:
-      - ./public:/serve:ro        
+      - ./:/serve:ro
     command: ["python", "server_mt.py", "/serve"]
+
+  requesttest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: [ "python", "request_test.py" ]

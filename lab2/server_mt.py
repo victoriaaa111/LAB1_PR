@@ -1,12 +1,12 @@
-import os, sys, socket, mimetypes, time
+import os, sys, socket, mimetypes
 from urllib.parse import unquote, quote
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 # config
 HOST = "0.0.0.0"
-PORT = int(os.environ.get("PORT", "8001"))          # different from Lab 1 (8000)
+PORT = int(os.environ.get("PORT", "8001"))
 ALLOWED_EXTENSIONS = {".html", ".png", ".pdf"}
-SIMULATE_WORK_MS = int(os.environ.get("SIMULATE_WORK_MS", "0"))
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "16"))
 
 # ensure common types exist
@@ -133,6 +133,7 @@ def _respond_404(conn):
 # multithreaded handler
 def _serve_connection(conn: socket.socket, addr, content_dir: str):
     try:
+        time.sleep(1)
         data = conn.recv(4096)
         if not data:
             return
@@ -155,8 +156,6 @@ def _serve_connection(conn: socket.socket, addr, content_dir: str):
             target = "/"
         target = unquote(target)
 
-        if SIMULATE_WORK_MS > 0:
-            time.sleep(SIMULATE_WORK_MS / 1000.0)
 
         # map to filesystem under content_dir
         requested_rel = "" if target == "/" else target.lstrip("/")
@@ -229,7 +228,7 @@ def main():
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((HOST, PORT))
         s.listen()
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        with ThreadPoolExecutor(max_workers=16) as pool:
             while True:
                 conn, addr = s.accept()
                 pool.submit(_serve_connection, conn, addr, content_dir)
