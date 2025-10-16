@@ -332,7 +332,7 @@ def main():
             try:
                 with open(requested_abs, "rb") as f:
                     body = f.read()
-                time.sleep(1)
+                time.sleep(0.5)
                 respond(conn, "200 OK",
                         {"Content-Type": mime_type,
                          "Content-Length": str(len(body)),

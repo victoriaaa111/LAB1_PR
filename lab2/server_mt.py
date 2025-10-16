@@ -1,9 +1,9 @@
 import os, sys, socket, mimetypes
 from urllib.parse import unquote, quote
-from concurrent.futures import ThreadPoolExecutor
+import threading
 import time
 from typing import Dict
-import threading
+
 
 # config
 HOST = "0.0.0.0"
@@ -147,8 +147,9 @@ def _respond_404(conn):
 
 # multithreaded handler
 def _serve_connection(conn: socket.socket, addr, content_dir: str):
+    # Multithreaded handler with rate limiting
     try:
-        time.sleep(1)
+        time.sleep(0.5)
         data = conn.recv(4096)
         if not data:
             return
@@ -189,7 +190,7 @@ def _serve_connection(conn: socket.socket, addr, content_dir: str):
             body = _minimal_listing_html(target, requested_abs)
             respond(conn, "200 OK",
                     {"Content-Type": "text/html; charset=utf-8",
-                     "Content-Length": str(len(body)), "Connection": "close"},
+                    "Content-Length": str(len(body)), "Connection": "close"},
                     body)
             return
 
@@ -213,7 +214,7 @@ def _serve_connection(conn: socket.socket, addr, content_dir: str):
                 body = f.read()
             respond(conn, "200 OK",
                     {"Content-Type": mime_type,
-                     "Content-Length": str(len(body)), "Connection": "close"},
+                    "Content-Length": str(len(body)), "Connection": "close"},
                     body)
         except OSError:
             respond(conn, "500 Internal Server Error",
@@ -225,7 +226,6 @@ def _serve_connection(conn: socket.socket, addr, content_dir: str):
         except Exception:
             pass
 
-
 def main():
     if len(sys.argv) != 2:
         print("Usage: python server_mt.py <directory>")
@@ -235,7 +235,7 @@ def main():
         print(f"Error: Directory '{content_dir}' does not exist.")
         sys.exit(1)
 
-    print(f"Serving directory (MT): {content_dir}")
+    print(f"Serving directory (MT - Thread per request): {content_dir}")
     print(f"Server running on: http://0.0.0.0:{PORT}")
     print("Press Ctrl+C to stop")
 
@@ -243,10 +243,21 @@ def main():
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((HOST, PORT))
         s.listen()
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        
+        try:
             while True:
                 conn, addr = s.accept()
-                pool.submit(_serve_connection, conn, addr, content_dir)
+                # Create a new thread for each request
+                thread = threading.Thread(
+                    target=_serve_connection, 
+                    args=(conn, addr, content_dir),
+                    daemon=True
+                )
+                thread.start()
+        except KeyboardInterrupt:
+            print("\nShutting down server...")
+            sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
