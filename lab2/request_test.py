@@ -68,7 +68,6 @@ def run_concurrent_test(url: str, num_requests: int) -> None:
     print(f"{'=' * 70}\n")
 
 def main():
-    """Main entry point for the script."""
     if len(sys.argv) != 5:
         print("Usage: python3 request_test.py <ip> <port> <path> <nr_req>")
         print("\nExamples:")

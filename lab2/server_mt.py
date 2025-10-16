@@ -2,7 +2,8 @@ import os, sys, socket, mimetypes
 from urllib.parse import unquote, quote
 from concurrent.futures import ThreadPoolExecutor
 import time
-from typing import Optional, Dict
+from typing import Dict
+import threading
 
 # config
 HOST = "0.0.0.0"
@@ -10,6 +11,7 @@ PORT = int(os.environ.get("PORT", "8001"))
 ALLOWED_EXTENSIONS = {".html", ".png", ".pdf"}
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "16"))
 COUNTS: Dict[str, int] = {}
+COUNTS_LOCK = threading.Lock()
 
 # ensure common types exist
 mimetypes.init()
@@ -26,10 +28,12 @@ def file_size(num_bytes: int) -> str:
     return f"{num_bytes:.1f} TB"
 
 
-def _bump_count_naive(path_key: str):
-    current = COUNTS.get(path_key, 0)
-    time.sleep(100 / 1000)
-    COUNTS[path_key] = current + 1
+def _bump_count(path_key: str):
+    with COUNTS_LOCK:
+        current = COUNTS.get(path_key, 0)
+        time.sleep(100 / 1000.0)
+        COUNTS[path_key] = current + 1
+
 
 def respond(conn, status, headers, body):
     head = [f"HTTP/1.1 {status}".encode()]
@@ -144,7 +148,7 @@ def _respond_404(conn):
 # multithreaded handler
 def _serve_connection(conn: socket.socket, addr, content_dir: str):
     try:
-        time.sleep(0.1)
+        time.sleep(1)
         data = conn.recv(4096)
         if not data:
             return
@@ -166,7 +170,7 @@ def _serve_connection(conn: socket.socket, addr, content_dir: str):
         if not target.startswith("/"):
             target = "/"
         target = unquote(target)
-        _bump_count_naive(target)
+        _bump_count(target)
 
         # map to filesystem under content_dir
         requested_rel = "" if target == "/" else target.lstrip("/")
@@ -239,7 +243,7 @@ def main():
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((HOST, PORT))
         s.listen()
-        with ThreadPoolExecutor(max_workers=16) as pool:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             while True:
                 conn, addr = s.accept()
                 pool.submit(_serve_connection, conn, addr, content_dir)
