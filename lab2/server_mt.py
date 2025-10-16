@@ -2,8 +2,7 @@ import os, sys, socket, mimetypes
 from urllib.parse import unquote, quote
 import threading
 import time
-from typing import Dict
-
+from typing import Dict, List
 
 # config
 HOST = "0.0.0.0"
@@ -12,6 +11,12 @@ ALLOWED_EXTENSIONS = {".html", ".png", ".pdf"}
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "16"))
 COUNTS: Dict[str, int] = {}
 COUNTS_LOCK = threading.Lock()
+REQUESTS_PER_SECOND = 5
+TIME_WINDOW = 1.0
+
+
+client_requests: Dict[str, List[float]] = {}
+requests_lock = threading.Lock()
 
 # ensure common types exist
 mimetypes.init()
@@ -51,6 +56,44 @@ def _is_subpath(child: str, parent: str) -> bool:
         return os.path.commonpath([child_real, parent_real]) == parent_real
     except ValueError:
         return False
+
+
+def allow_request(ip: str) -> bool:
+    #  Check if request from IP should be allowed based on rate limit
+    now = time.time()
+
+    with requests_lock:
+        if ip not in client_requests:
+            client_requests[ip] = []
+
+        timestamps = client_requests[ip]
+
+        # Clean old timestamps beyond window
+        client_requests[ip] = [t for t in timestamps if now - t < TIME_WINDOW]
+
+        # Check limit
+        if len(client_requests[ip]) < REQUESTS_PER_SECOND:
+            client_requests[ip].append(now)
+            return True
+        return False
+
+
+def _respond_429(conn):
+    body = b"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;700&display=swap' rel='stylesheet'>
+    <title>429 Too Many Requests</title><style>body{margin:0;padding:0;display:flex;justify-content:center;align-items:center;height:100vh;
+    background-color:#F7F3ED;color:#DBA1A2;text-align:center;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .container{max-width:600px}h1{font-size:64px;margin-bottom:16px;font-family:'Pixelify Sans',sans-serif}
+    p{font-size:18px;color:#955A5C}</style>
+    </head><body><div class="container"><h1>429</h1><p>Too Many Requests</p>
+    <p>Please slow down and try again later.</p></div></body></html>"""
+    respond(conn, "429 Too Many Requests",
+            {"Content-Type": "text/html; charset=utf-8",
+             "Retry-After": "1",
+             "Content-Length": str(len(body)), "Connection": "close"}, body)
 
 
 def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
@@ -149,10 +192,18 @@ def _respond_404(conn):
 def _serve_connection(conn: socket.socket, addr, content_dir: str):
     # Multithreaded handler with rate limiting
     try:
-        time.sleep(0.5)
+        client_ip = addr[0]
+
+        # Check rate limit
+        if not allow_request(client_ip):
+            _respond_429(conn)
+            return
+
+        time.sleep(0.5)  # simulate work
         data = conn.recv(4096)
         if not data:
             return
+
         line = data.split(b"\r\n", 1)[0].decode(errors="replace")
         parts = line.split()
         if len(parts) != 3:
