@@ -133,7 +133,7 @@ def _minimal_listing_html(req_path: str, abs_dir: str) -> bytes:
         ".title-lab{font-family:'Pixelify Sans', sans-serif; color: #DBA1A2; font-size: 64px; margin-bottom: 16px; margin-top: 4px;}",
         ".center-title{display:flex; text-align: center; align-items: center; justify-content: center;}",
         "</style>", "</head>", "<body>", "<header>", "<div class='center-title'>",
-        f"<h1 class='title-lab'>Victoria's 1st PR LAB</h1></div>", f"<h1>Content of {req_path}</h1>", "</header>", "<main>",
+        f"<h1 class='title-lab'>Victoria's 2nd PR LAB</h1></div>", f"<h1>Content of {req_path}</h1>", "</header>", "<main>",
     ]
     if req_path != "/":
         parent = req_path.rstrip("/").rsplit("/", 1)[0]
