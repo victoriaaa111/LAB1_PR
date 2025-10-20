@@ -1,6 +1,7 @@
 import os
 import socket
 import mimetypes
+import time
 
 # ensure common types exist even in slim images
 mimetypes.init()
@@ -331,6 +332,7 @@ def main():
             try:
                 with open(requested_abs, "rb") as f:
                     body = f.read()
+                time.sleep(0.5)
                 respond(conn, "200 OK",
                         {"Content-Type": mime_type,
                          "Content-Length": str(len(body)),
