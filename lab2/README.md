@@ -90,3 +90,8 @@ We can see that when I sent 200, I got 5 successful ones and the other 195 were 
 When sending the requests using my ```request_test.py``` script we can also add a delay for the requests to be sent, so they can be spaced out and not all sent at once. I ran this command:
 ![img_6.png](public%2Freport_pics%2Fimg_6.png)
 By sending a delay of 0.25 I made sure that only 4 requests are sent per second, so all 200 requests were successful since they did not pass the 5 requests limit.
+
+Also my colleague Daniel Cojocaru tried to send more than 5 req to my server in a second and he got a 429 error as well in browser:
+![img_10.png](public%2Freport_pics%2Fimg_10.png)
+When he sent less than 5 req/s he got a 200 OK response:
+![img_11.png](public%2Freport_pics%2Fimg_11.png)
